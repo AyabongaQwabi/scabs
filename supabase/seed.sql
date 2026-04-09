@@ -1,0 +1,6 @@
+-- Sunshine Cabs: optional seed
+--
+-- This file is intentionally empty. We do not load demo locations, drivers, routes, or trips here.
+-- Use `supabase/migrations/` for schema and data-fix scripts (e.g. travel route inverse mirror).
+--
+-- If your project runs a seed step on `db reset`, it will no-op. Add only what you want locally.
