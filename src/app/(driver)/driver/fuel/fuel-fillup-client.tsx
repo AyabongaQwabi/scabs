@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { readDriverApiJson } from "@/lib/driver/read-driver-api";
 import { enqueue } from "@/lib/offline-queue/idb";
 
 export function FuelFillupClient({ disabled }: { disabled: boolean }) {
@@ -52,28 +53,33 @@ export function FuelFillupClient({ disabled }: { disabled: boolean }) {
         disabled={pending}
         onClick={() => {
           startTransition(async () => {
-            const payload = {
-              litres: Number(litres),
-              randAmount: Number(randAmount),
-              odometerKm: odometerKm.trim() ? Number(odometerKm) : null,
-            };
+            try {
+              const payload = {
+                litres: Number(litres),
+                randAmount: Number(randAmount),
+                odometerKm: odometerKm.trim() ? Number(odometerKm) : null,
+              };
 
-            if (!navigator.onLine) {
-              await enqueue("fuelFillup", payload);
-              toast.message("Saved offline. Will sync when you’re back online.");
-              return;
+              if (!navigator.onLine) {
+                await enqueue("fuelFillup", payload);
+                toast.message("Saved offline. Will sync when you're back online.");
+                return;
+              }
+
+              const res = await fetch("/api/driver/fuel-fillup", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify(payload),
+                credentials: "same-origin",
+              });
+              await readDriverApiJson<{ ok: boolean }>(res);
+              setLitres("");
+              setRandAmount("");
+              setOdometerKm("");
+              router.refresh();
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "Could not save fill-up.");
             }
-
-            const res = await fetch("/api/driver/fuel-fillup", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify(payload),
-            });
-            if (!res.ok) throw new Error(await res.text());
-            setLitres("");
-            setRandAmount("");
-            setOdometerKm("");
-            router.refresh();
           });
         }}
       >

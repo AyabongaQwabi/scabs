@@ -13,6 +13,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { haversineKm } from "@/lib/distance/haversine";
+import { readDriverApiJson } from "@/lib/driver/read-driver-api";
 import { enqueue } from "@/lib/offline-queue/idb";
 import { DEADHEAD_ZAR_PER_KM } from "@/lib/pricing/deadhead";
 
@@ -370,22 +371,45 @@ export function NewTripForm({ locations }: { locations: LocationOption[] }) {
         disabled={!canStartTrip || isPending}
         onClick={() => {
           startTransition(async () => {
-            if (!navigator.geolocation) throw new Error("GPS not available on this device.");
+            try {
+            const startLoc = locById.get(startId);
+            const fallbackLat = coord(startLoc?.lat);
+            const fallbackLng = coord(startLoc?.lng);
 
-            const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-              navigator.geolocation.getCurrentPosition(resolve, reject, {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 10000,
+            let startLat: number;
+            let startLng: number;
+            try {
+              if (!navigator.geolocation) throw new Error("unavailable");
+              const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+                navigator.geolocation.getCurrentPosition(resolve, reject, {
+                  enableHighAccuracy: true,
+                  timeout: 10000,
+                  maximumAge: 10000,
+                });
               });
-            });
+              startLat = pos.coords.latitude;
+              startLng = pos.coords.longitude;
+            } catch {
+              if (fallbackLat != null && fallbackLng != null) {
+                startLat = fallbackLat;
+                startLng = fallbackLng;
+                toast.message(
+                  "GPS unavailable — using the pickup location's coordinates for this trip start.",
+                );
+              } else {
+                toast.error(
+                  "Could not read your location. Allow location access in the browser, or set coordinates on the start location in admin.",
+                );
+                return;
+              }
+            }
 
             const payload = {
               startLocationId: startId,
               endLocationId: endId,
               stopLocationIds: stops.filter(Boolean),
-              startLat: pos.coords.latitude,
-              startLng: pos.coords.longitude,
+              startLat,
+              startLng,
               customerPhone: customerPhone.trim() || null,
               ...(preTripFrom &&
               preTripTo &&
@@ -397,7 +421,7 @@ export function NewTripForm({ locations }: { locations: LocationOption[] }) {
 
             if (!navigator.onLine) {
               await enqueue("startTrip", payload);
-              toast.message("Saved offline. Will sync when you’re back online.");
+              toast.message("Saved offline. Will sync when you're back online.");
               router.push("/driver/home");
               return;
             }
@@ -406,10 +430,13 @@ export function NewTripForm({ locations }: { locations: LocationOption[] }) {
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify(payload),
+              credentials: "same-origin",
             });
-            if (!res.ok) throw new Error(await res.text());
-            const json = (await res.json()) as { tripId: string };
+            const json = await readDriverApiJson<{ tripId: string }>(res);
             router.push(`/driver/trips/active?tripId=${json.tripId}`);
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "Could not start trip.");
+            }
           });
         }}
       >

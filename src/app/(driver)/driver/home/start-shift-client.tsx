@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { readDriverApiJson } from "@/lib/driver/read-driver-api";
 import { enqueue } from "@/lib/offline-queue/idb";
 
 export function StartShiftClient({
@@ -58,7 +59,7 @@ export function StartShiftClient({
 
             if (!navigator.onLine) {
               await enqueue("startShift", payload);
-              toast.message("Saved offline. Will sync when you’re back online.");
+              toast.message("Saved offline. Will sync when you're back online.");
               return;
             }
 
@@ -67,15 +68,12 @@ export function StartShiftClient({
                 method: "POST",
                 headers: { "content-type": "application/json" },
                 body: JSON.stringify(payload),
+                credentials: "same-origin",
               });
-              const data = await res.json().catch(() => ({}));
-              if (!res.ok) {
-                toast.error(typeof data?.error === "string" ? data.error : "Could not start shift.");
-                return;
-              }
+              await readDriverApiJson<{ ok: boolean }>(res);
               router.refresh();
-            } catch {
-              toast.error("Could not start shift. Check your connection.");
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "Could not start shift.");
             }
           });
         }}

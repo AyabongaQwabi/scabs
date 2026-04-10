@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { readDriverApiJson } from "@/lib/driver/read-driver-api";
 import { enqueue } from "@/lib/offline-queue/idb";
 
 export function EndShiftClient({ disabled }: { disabled: boolean }) {
@@ -31,20 +32,25 @@ export function EndShiftClient({ disabled }: { disabled: boolean }) {
         disabled={pending}
         onClick={() => {
           startTransition(async () => {
-            const payload = { endKm: endKm.trim() ? Number(endKm) : null };
-            if (!navigator.onLine) {
-              await enqueue("endShift", payload);
-              toast.message("Saved offline. Will sync when you’re back online.");
+            try {
+              const payload = { endKm: endKm.trim() ? Number(endKm) : null };
+              if (!navigator.onLine) {
+                await enqueue("endShift", payload);
+                toast.message("Saved offline. Will sync when you're back online.");
+                router.push("/driver/home");
+                return;
+              }
+              const res = await fetch("/api/driver/end-shift", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify(payload),
+                credentials: "same-origin",
+              });
+              await readDriverApiJson<{ ok: boolean }>(res);
               router.push("/driver/home");
-              return;
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "Could not end shift.");
             }
-            const res = await fetch("/api/driver/end-shift", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify(payload),
-            });
-            if (!res.ok) throw new Error(await res.text());
-            router.push("/driver/home");
           });
         }}
       >

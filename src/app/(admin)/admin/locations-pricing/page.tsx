@@ -4,7 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-import { computeDrivingKmByRouteId } from "@/lib/maps/admin-route-driving-distances";
+import {
+  computeDrivingKmByRouteId,
+  maxRouteLookups,
+} from "@/lib/maps/admin-route-driving-distances";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { addLocationAction } from "./actions";
 import { LocationsAdminTable } from "./locations-admin-table";
@@ -32,13 +35,7 @@ export default async function AdminLocationsPricingPage() {
     (p) => `${p.from_location_id}:${p.to_location_id}`,
   );
 
-  const maxMatrixLookupsRaw =
-    process.env.MAPBOX_ADMIN_MAX_ROUTE_LOOKUPS ?? process.env.GOOGLE_MAPS_ADMIN_MAX_ROUTE_LOOKUPS;
-  let maxMatrixRouteLookups = 400;
-  if (maxMatrixLookupsRaw !== undefined && String(maxMatrixLookupsRaw).trim() !== "") {
-    const n = Number(maxMatrixLookupsRaw);
-    maxMatrixRouteLookups = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 400;
-  }
+  const maxMatrixRouteLookups = maxRouteLookups();
 
   const drivingKmByRouteId = await computeDrivingKmByRouteId(pricing ?? [], locations ?? []);
 

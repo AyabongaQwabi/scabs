@@ -2,7 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 
-import { requireDriverId } from "@/lib/driver-session/require-driver";
+import { requireDriverIdForApi } from "@/lib/driver-session/require-driver";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { calculateRecommendedTotal } from "@/lib/pricing/recommended";
 import { haversineKm } from "@/lib/distance/haversine";
@@ -12,7 +12,7 @@ import { driverCalendarDateISO, getOpenShiftForDriver } from "@/lib/driver/shift
 import { revalidatePath } from "next/cache";
 
 export async function startShiftMutation(input: unknown) {
-  const driverId = await requireDriverId();
+  const driverId = await requireDriverIdForApi();
   const schema = z.object({
     startKm: z.number().nullable().optional(),
     goalAmount: z.number().nullable().optional(),
@@ -55,7 +55,7 @@ export async function startShiftMutation(input: unknown) {
 }
 
 export async function endShiftMutation(input: unknown) {
-  const driverId = await requireDriverId();
+  const driverId = await requireDriverIdForApi();
   const schema = z.object({ endKm: z.number().nullable().optional() });
   const parsed = schema.safeParse(input);
   if (!parsed.success) throw new Error("Invalid payload.");
@@ -83,7 +83,7 @@ export async function endShiftMutation(input: unknown) {
 }
 
 export async function addFuelFillupMutation(input: unknown) {
-  const driverId = await requireDriverId();
+  const driverId = await requireDriverIdForApi();
   const schema = z.object({
     litres: z.number().positive(),
     randAmount: z.number().nonnegative(),
@@ -116,7 +116,7 @@ export async function addFuelFillupMutation(input: unknown) {
 }
 
 export async function startTripMutation(input: unknown) {
-  const driverId = await requireDriverId();
+  const driverId = await requireDriverIdForApi();
   const schema = z.object({
     startLocationId: z.string().uuid(),
     endLocationId: z.string().uuid(),
@@ -193,7 +193,7 @@ export async function startTripMutation(input: unknown) {
 }
 
 export async function endTripMutation(input: unknown) {
-  const driverId = await requireDriverId();
+  const driverId = await requireDriverIdForApi();
   const schema = z.object({
     tripId: z.string().uuid(),
     endLat: z.number(),

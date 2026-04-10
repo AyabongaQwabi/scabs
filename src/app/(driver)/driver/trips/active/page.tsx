@@ -38,11 +38,21 @@ export default async function ActiveTripPage({
   ].filter(Boolean);
 
   const { data: locs } = locationIds.length
-    ? await supabaseAdmin.from("locations").select("id,name").in("id", locationIds as string[])
+    ? await supabaseAdmin.from("locations").select("id,name,lat,lng").in("id", locationIds as string[])
     : { data: [] as any[] };
 
   const nameById = new Map<string, string>();
-  for (const l of locs ?? []) nameById.set(l.id, l.name);
+  const coordById = new Map<string, { lat: number; lng: number }>();
+  for (const l of locs ?? []) {
+    nameById.set(l.id, l.name);
+    const lat = l.lat != null ? Number(l.lat) : null;
+    const lng = l.lng != null ? Number(l.lng) : null;
+    if (lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)) {
+      coordById.set(l.id, { lat, lng });
+    }
+  }
+
+  const endFallback = trip.end_location_id ? coordById.get(trip.end_location_id) : undefined;
 
   const stopNames =
     Array.isArray(trip.stops) && trip.stops.length
@@ -73,6 +83,8 @@ export default async function ActiveTripPage({
         tripId={trip.id}
         startLat={trip.start_lat != null ? Number(trip.start_lat) : null}
         startLng={trip.start_lng != null ? Number(trip.start_lng) : null}
+        endFallbackLat={endFallback?.lat ?? null}
+        endFallbackLng={endFallback?.lng ?? null}
         customerPhone={trip.customer_phone}
         recommendedTotal={trip.recommended_price != null ? Number(trip.recommended_price) : null}
       />

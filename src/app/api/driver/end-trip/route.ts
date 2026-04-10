@@ -1,10 +1,7 @@
-import { NextResponse } from "next/server";
-
+import { jsonDriverPost } from "@/lib/driver/json-driver-post";
 import { endTripMutation } from "@/lib/driver/mutations";
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => null);
-  const result = await endTripMutation(body);
-  return NextResponse.json(result);
+  return jsonDriverPost(req, endTripMutation);
 }
 

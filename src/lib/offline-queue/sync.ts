@@ -7,10 +7,24 @@ async function postJson(path: string, payload: unknown) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload),
+    credentials: "same-origin",
   });
+  const text = await res.text().catch(() => "");
   if (!res.ok) {
-    const msg = await res.text().catch(() => "");
-    throw new Error(msg || `Request failed: ${res.status}`);
+    let msg = text.slice(0, 200) || `Request failed: ${res.status}`;
+    try {
+      const j = text ? JSON.parse(text) : null;
+      if (
+        j &&
+        typeof j === "object" &&
+        typeof (j as { error?: unknown }).error === "string"
+      ) {
+        msg = (j as { error: string }).error;
+      }
+    } catch {
+      // keep msg
+    }
+    throw new Error(msg);
   }
 }
 

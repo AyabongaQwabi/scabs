@@ -25,19 +25,34 @@ function coordForLocation(loc: LocRow | undefined): { lat: number; lng: number }
   return normalizeLatLngSouthernAfrica(lat, lng);
 }
 
-function maxRouteLookups(): number {
-  const raw =
-    process.env.MAPBOX_ADMIN_MAX_ROUTE_LOOKUPS ?? process.env.GOOGLE_MAPS_ADMIN_MAX_ROUTE_LOOKUPS;
-  let max = 400;
+/** Min delay between Matrix API calls when bulk-loading admin route distances (ms). */
+function minIntervalBetweenMatrixMs(): number {
+  const raw = process.env.MAPBOX_MATRIX_MIN_INTERVAL_MS;
   if (raw !== undefined && String(raw).trim() !== "") {
     const n = Number(raw);
-    max = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 400;
+    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+  }
+  return 1100;
+}
+
+/**
+ * Cap how many travel_routes rows participate in Mapbox lookups per request.
+ * Default is conservative to avoid 429s; raise via MAPBOX_ADMIN_MAX_ROUTE_LOOKUPS when needed.
+ */
+export function maxRouteLookups(): number {
+  const raw =
+    process.env.MAPBOX_ADMIN_MAX_ROUTE_LOOKUPS ?? process.env.GOOGLE_MAPS_ADMIN_MAX_ROUTE_LOOKUPS;
+  let max = 36;
+  if (raw !== undefined && String(raw).trim() !== "") {
+    const n = Number(raw);
+    max = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 36;
   }
   return max;
 }
 
 /**
  * Driving km per route id via Mapbox Matrix when `MAPBOX_ACCESS_TOKEN` is set.
+ * Requests are serialized with a small delay so a single page load does not burst past Mapbox limits.
  * @see https://docs.mapbox.com/api/navigation/matrix/
  */
 export async function computeDrivingKmByRouteId(
@@ -73,24 +88,26 @@ export async function computeDrivingKmByRouteId(
   }
 
   const entries = [...pairToRouteIds.entries()];
-  /** Mapbox Matrix default limit 60 req/min for driving — keep concurrency modest */
-  const chunkSize = 3;
+  const gapMs = minIntervalBetweenMatrixMs();
 
-  for (let i = 0; i < entries.length; i += chunkSize) {
-    const chunk = entries.slice(i, i + chunkSize);
-    await Promise.all(
-      chunk.map(async ([pk, routeIds]) => {
-        const [origStr, destStr] = pk.split("|");
-        const [oLat, oLng] = origStr.split(",").map(Number);
-        const [dLat, dLng] = destStr.split(",").map(Number);
-        const km = await getDrivingDistanceKm(
-          { lat: oLat, lng: oLng },
-          { lat: dLat, lng: dLng },
-        );
-        if (km == null) return;
-        for (const id of routeIds) results[id] = km;
-      }),
-    );
+  for (let i = 0; i < entries.length; i++) {
+    if (i > 0 && gapMs > 0) {
+      await new Promise((r) => setTimeout(r, gapMs));
+    }
+    const [pk, routeIds] = entries[i]!;
+    try {
+      const [origStr, destStr] = pk.split("|");
+      const [oLat, oLng] = origStr.split(",").map(Number);
+      const [dLat, dLng] = destStr.split(",").map(Number);
+      const km = await getDrivingDistanceKm(
+        { lat: oLat, lng: oLng },
+        { lat: dLat, lng: dLng },
+      );
+      if (km == null) continue;
+      for (const id of routeIds) results[id] = km;
+    } catch {
+      /* getDrivingDistanceKm should not throw; guard so admin pages never 500 */
+    }
   }
 
   return results;

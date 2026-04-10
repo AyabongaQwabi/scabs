@@ -17,18 +17,23 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { haversineKm } from "@/lib/distance/haversine";
+import { readDriverApiJson } from "@/lib/driver/read-driver-api";
 import { enqueue } from "@/lib/offline-queue/idb";
 
 export function ActiveTripClient({
   tripId,
   startLat,
   startLng,
+  endFallbackLat,
+  endFallbackLng,
   customerPhone,
   recommendedTotal,
 }: {
   tripId: string;
   startLat: number | null;
   startLng: number | null;
+  endFallbackLat: number | null;
+  endFallbackLng: number | null;
   customerPhone: string | null;
   recommendedTotal: number | null;
 }) {
@@ -150,24 +155,61 @@ export function ActiveTripClient({
               disabled={pending || !price.trim()}
               onClick={() => {
                 startTransition(async () => {
-                  if (!navigator.geolocation) throw new Error("GPS not available on this device.");
-                  const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
-                    navigator.geolocation.getCurrentPosition(resolve, reject, {
-                      enableHighAccuracy: true,
-                      timeout: 10000,
-                      maximumAge: 5000,
+                  try {
+                  let endLat: number;
+                  let endLng: number;
+                  try {
+                    if (!navigator.geolocation) throw new Error("unavailable");
+                    const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+                      navigator.geolocation.getCurrentPosition(resolve, reject, {
+                        enableHighAccuracy: true,
+                        timeout: 10000,
+                        maximumAge: 5000,
+                      });
                     });
-                  });
+                    endLat = pos.coords.latitude;
+                    endLng = pos.coords.longitude;
+                  } catch {
+                    if (
+                      endFallbackLat != null &&
+                      endFallbackLng != null &&
+                      Number.isFinite(endFallbackLat) &&
+                      Number.isFinite(endFallbackLng)
+                    ) {
+                      endLat = endFallbackLat;
+                      endLng = endFallbackLng;
+                      toast.message(
+                        "GPS unavailable — using the trip end location's coordinates from the map.",
+                      );
+                    } else if (startLat != null && startLng != null) {
+                      endLat = startLat;
+                      endLng = startLng;
+                      toast.message(
+                        "GPS unavailable and end location has no coordinates — using trip start GPS; total distance may be wrong.",
+                      );
+                    } else {
+                      toast.error(
+                        "Could not read your location. Allow location access, or set coordinates on the end location in admin.",
+                      );
+                      return;
+                    }
+                  }
 
                   const actualPrice = Number(price);
                   const disc = Number(discountAmount || "0");
-                  if (!Number.isFinite(actualPrice) || actualPrice < 0) throw new Error("Invalid price.");
-                  if (!Number.isFinite(disc) || disc < 0) throw new Error("Invalid discount.");
+                  if (!Number.isFinite(actualPrice) || actualPrice < 0) {
+                    toast.error("Invalid price.");
+                    return;
+                  }
+                  if (!Number.isFinite(disc) || disc < 0) {
+                    toast.error("Invalid discount.");
+                    return;
+                  }
 
                   const payload = {
                     tripId,
-                    endLat: pos.coords.latitude,
-                    endLng: pos.coords.longitude,
+                    endLat,
+                    endLng,
                     actualPrice,
                     discountAmount: disc,
                     discountReason: discountReason.trim() || null,
@@ -175,7 +217,7 @@ export function ActiveTripClient({
 
                   if (!navigator.onLine) {
                     await enqueue("endTrip", payload);
-                    toast.message("Saved offline. Will sync when you’re back online.");
+                    toast.message("Saved offline. Will sync when you're back online.");
                     router.push("/driver/home");
                     return;
                   }
@@ -184,9 +226,13 @@ export function ActiveTripClient({
                     method: "POST",
                     headers: { "content-type": "application/json" },
                     body: JSON.stringify(payload),
+                    credentials: "same-origin",
                   });
-                  if (!res.ok) throw new Error(await res.text());
+                  await readDriverApiJson<{ ok: boolean }>(res);
                   router.push("/driver/home");
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "Could not end trip.");
+                  }
                 });
               }}
             >
