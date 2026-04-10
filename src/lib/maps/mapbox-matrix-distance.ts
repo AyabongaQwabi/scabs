@@ -1,5 +1,7 @@
 import "server-only";
 
+import { unstable_cache } from "next/cache";
+
 type Coord = { lat: number; lng: number };
 
 type MatrixResponse = {
@@ -102,8 +104,35 @@ export async function fetchMapboxDrivingDistanceMeters(
   }
 }
 
-/** Driving distance in km. Not cached so config/token fixes apply on the next request. */
+function roundCoordKey(c: Coord): Coord {
+  return {
+    lat: Math.round(c.lat * 1e5) / 1e5,
+    lng: Math.round(c.lng * 1e5) / 1e5,
+  };
+}
+
+function mapboxDistanceCacheRevalidate(): number {
+  const raw = process.env.MAPBOX_DISTANCE_CACHE_SECONDS?.trim();
+  if (raw === "" || raw === undefined) return 86_400;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 60 ? Math.floor(n) : 86_400;
+}
+
+/**
+ * Driving distance in km. Results are cached across requests (default 24h) so admin pricing
+ * and deadhead previews do not re-hit Mapbox for the same coordinate pair.
+ */
 export async function getDrivingDistanceKm(origin: Coord, destination: Coord): Promise<number | null> {
-  const meters = await fetchMapboxDrivingDistanceMeters(origin, destination);
-  return meters == null ? null : meters / 1000;
+  const o = roundCoordKey(origin);
+  const d = roundCoordKey(destination);
+  const pairKey = `${o.lat},${o.lng}|${d.lat},${d.lng}`;
+
+  return unstable_cache(
+    async () => {
+      const meters = await fetchMapboxDrivingDistanceMeters(o, d);
+      return meters == null ? null : meters / 1000;
+    },
+    ["mapbox-driving-km", pairKey],
+    { revalidate: mapboxDistanceCacheRevalidate() },
+  )();
 }

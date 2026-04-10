@@ -25,14 +25,36 @@ function coordForLocation(loc: LocRow | undefined): { lat: number; lng: number }
   return normalizeLatLngSouthernAfrica(lat, lng);
 }
 
-/** Min delay between Matrix API calls when bulk-loading admin route distances (ms). */
-function minIntervalBetweenMatrixMs(): number {
-  const raw = process.env.MAPBOX_MATRIX_MIN_INTERVAL_MS;
+/**
+ * Parallel Mapbox lookups for unique coordinate pairs (default 4).
+ * Pair results are cached via `getDrivingDistanceKm` (see MAPBOX_DISTANCE_CACHE_SECONDS), so repeat
+ * page loads usually do not hit Mapbox at all. Lower this if you see 429s on cold cache.
+ */
+function adminMatrixConcurrency(): number {
+  const raw = process.env.MAPBOX_ADMIN_MATRIX_CONCURRENCY;
   if (raw !== undefined && String(raw).trim() !== "") {
     const n = Number(raw);
-    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+    if (Number.isFinite(n)) return Math.max(1, Math.min(12, Math.floor(n)));
   }
-  return 1100;
+  return 4;
+}
+
+async function runWithConcurrency<T>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return;
+  const c = Math.max(1, Math.min(16, Math.floor(concurrency)));
+  let next = 0;
+  async function runWorker() {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      await worker(items[i]!);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(c, items.length) }, () => runWorker()));
 }
 
 /**
@@ -52,7 +74,8 @@ export function maxRouteLookups(): number {
 
 /**
  * Driving km per route id via Mapbox Matrix when `MAPBOX_ACCESS_TOKEN` is set.
- * Requests are serialized with a small delay so a single page load does not burst past Mapbox limits.
+ * Unique coordinate pairs are resolved concurrently (see MAPBOX_ADMIN_MATRIX_CONCURRENCY); each pair
+ * is cached across requests by `getDrivingDistanceKm`.
  * @see https://docs.mapbox.com/api/navigation/matrix/
  */
 export async function computeDrivingKmByRouteId(
@@ -88,13 +111,9 @@ export async function computeDrivingKmByRouteId(
   }
 
   const entries = [...pairToRouteIds.entries()];
-  const gapMs = minIntervalBetweenMatrixMs();
+  const concurrency = adminMatrixConcurrency();
 
-  for (let i = 0; i < entries.length; i++) {
-    if (i > 0 && gapMs > 0) {
-      await new Promise((r) => setTimeout(r, gapMs));
-    }
-    const [pk, routeIds] = entries[i]!;
+  await runWithConcurrency(entries, concurrency, async ([pk, routeIds]) => {
     try {
       const [origStr, destStr] = pk.split("|");
       const [oLat, oLng] = origStr.split(",").map(Number);
@@ -103,12 +122,12 @@ export async function computeDrivingKmByRouteId(
         { lat: oLat, lng: oLng },
         { lat: dLat, lng: dLng },
       );
-      if (km == null) continue;
+      if (km == null) return;
       for (const id of routeIds) results[id] = km;
     } catch {
       /* getDrivingDistanceKm should not throw; guard so admin pages never 500 */
     }
-  }
+  });
 
   return results;
 }

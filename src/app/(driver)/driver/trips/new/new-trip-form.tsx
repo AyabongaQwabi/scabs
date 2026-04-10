@@ -12,10 +12,13 @@ import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { normalizeCustomerPhone } from "@/lib/customers/phone";
 import { haversineKm } from "@/lib/distance/haversine";
 import { readDriverApiJson } from "@/lib/driver/read-driver-api";
 import { enqueue } from "@/lib/offline-queue/idb";
 import { DEADHEAD_ZAR_PER_KM } from "@/lib/pricing/deadhead";
+
+import { CustomerPhoneField } from "./customer-phone-field";
 
 type LocationOption = {
   id: string;
@@ -332,20 +335,11 @@ export function NewTripForm({ locations }: { locations: LocationOption[] }) {
       </Card>
 
       <Card className="p-4">
-        <div className="space-y-2">
-          <Label htmlFor="customerPhone">Customer phone (optional)</Label>
-          <Input
-            id="customerPhone"
-            value={customerPhone}
-            onChange={(e) => setCustomerPhone(e.target.value)}
-            placeholder="+2771..."
-            inputMode="tel"
-            className="h-12"
-          />
-          <div className="text-xs text-muted-foreground">
-            Phone-only loyalty tracking. No customer names needed.
-          </div>
-        </div>
+        <CustomerPhoneField
+          value={customerPhone}
+          onChange={setCustomerPhone}
+          disabled={isPending}
+        />
       </Card>
 
       <Card className="p-4">
@@ -404,13 +398,14 @@ export function NewTripForm({ locations }: { locations: LocationOption[] }) {
               }
             }
 
+            const phoneRaw = customerPhone.trim();
             const payload = {
               startLocationId: startId,
               endLocationId: endId,
               stopLocationIds: stops.filter(Boolean),
               startLat,
               startLng,
-              customerPhone: customerPhone.trim() || null,
+              customerPhone: phoneRaw ? normalizeCustomerPhone(phoneRaw) : null,
               ...(preTripFrom &&
               preTripTo &&
               preTripFrom !== preTripTo && {

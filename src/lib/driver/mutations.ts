@@ -5,11 +5,13 @@ import { z } from "zod";
 import { requireDriverIdForApi } from "@/lib/driver-session/require-driver";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { calculateRecommendedTotal } from "@/lib/pricing/recommended";
-import { haversineKm } from "@/lib/distance/haversine";
 import { estimateCostPerKm } from "@/lib/fuel/cost";
 import { recordPreTripDeadheadIfNeeded } from "@/lib/driver/deadhead-loss";
 import { driverCalendarDateISO, getOpenShiftForDriver } from "@/lib/driver/shift-utils";
 import { revalidatePath } from "next/cache";
+
+import { normalizeCustomerPhone } from "@/lib/customers/phone";
+import { computeEndedTripRouteKm } from "@/lib/trips/compute-trip-route-km";
 
 export async function startShiftMutation(input: unknown) {
   const driverId = await requireDriverIdForApi();
@@ -160,6 +162,9 @@ export async function startTripMutation(input: unknown) {
     order: idx + 1,
   }));
 
+  const phoneRaw = (parsed.data.customerPhone ?? "").trim();
+  const customerPhoneNorm = phoneRaw ? normalizeCustomerPhone(phoneRaw) : null;
+
   const { data: inserted, error } = await supabaseAdmin
     .from("trips")
     .insert({
@@ -171,7 +176,7 @@ export async function startTripMutation(input: unknown) {
       start_lat: parsed.data.startLat,
       start_lng: parsed.data.startLng,
       recommended_price: recommended.totalRecommended,
-      customer_phone: parsed.data.customerPhone || null,
+      customer_phone: customerPhoneNorm,
     })
     .select("id")
     .single();
@@ -208,27 +213,25 @@ export async function endTripMutation(input: unknown) {
   const supabaseAdmin = getSupabaseAdmin();
   const { data: trip } = await supabaseAdmin
     .from("trips")
-    .select("id,driver_id,shift_id,start_lat,start_lng,stops,customer_phone")
+    .select(
+      "id,driver_id,shift_id,start_lat,start_lng,start_location_id,end_location_id,stops,customer_phone",
+    )
     .eq("id", parsed.data.tripId)
     .maybeSingle();
 
   if (!trip?.id || trip.driver_id !== driverId) throw new Error("Trip not found.");
 
+  const phoneRaw = (trip.customer_phone ?? "").trim();
+  const customerPhoneNormalized = phoneRaw ? normalizeCustomerPhone(trip.customer_phone!) : null;
+
   const startLat = trip.start_lat != null ? Number(trip.start_lat) : null;
   const startLng = trip.start_lng != null ? Number(trip.start_lng) : null;
   if (startLat == null || startLng == null) throw new Error("Trip is missing start GPS.");
 
-  const points: Array<{ lat: number; lng: number }> = [{ lat: startLat, lng: startLng }];
-  const stops = Array.isArray(trip.stops) ? trip.stops : [];
-  for (const s of stops) {
-    const lat = s?.lat != null ? Number(s.lat) : null;
-    const lng = s?.lng != null ? Number(s.lng) : null;
-    if (lat != null && lng != null) points.push({ lat, lng });
-  }
-  points.push({ lat: parsed.data.endLat, lng: parsed.data.endLng });
-
-  let totalKm = 0;
-  for (let i = 0; i < points.length - 1; i++) totalKm += haversineKm(points[i]!, points[i + 1]!);
+  const totalKm = await computeEndedTripRouteKm(supabaseAdmin, trip, {
+    lat: parsed.data.endLat,
+    lng: parsed.data.endLng,
+  });
 
   const costPerKm = await estimateCostPerKm(driverId);
   if (parsed.data.discountAmount > 0) {
@@ -249,12 +252,13 @@ export async function endTripMutation(input: unknown) {
       actual_price: parsed.data.actualPrice,
       discount_amount: parsed.data.discountAmount,
       discount_reason: parsed.data.discountReason || null,
+      customer_phone: customerPhoneNormalized,
     })
     .eq("id", parsed.data.tripId)
     .eq("driver_id", driverId);
   if (error) throw new Error(error.message);
 
-  const phone = trip.customer_phone?.trim();
+  const phone = customerPhoneNormalized ?? "";
   if (phone) {
     const now = new Date().toISOString();
     await supabaseAdmin

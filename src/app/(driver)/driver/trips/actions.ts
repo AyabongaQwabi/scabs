@@ -5,12 +5,13 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { requireDriverId } from "@/lib/driver-session/require-driver";
-import { haversineKm } from "@/lib/distance/haversine";
 import { calculateRecommendedTotal } from "@/lib/pricing/recommended";
 import { recordPreTripDeadheadIfNeeded } from "@/lib/driver/deadhead-loss";
 import { getOpenShiftForDriver } from "@/lib/driver/shift-utils";
+import { normalizeCustomerPhone } from "@/lib/customers/phone";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { estimateCostPerKm } from "@/lib/fuel/cost";
+import { computeEndedTripRouteKm } from "@/lib/trips/compute-trip-route-km";
 
 const StartTripSchema = z.object({
   startLocationId: z.string().uuid(),
@@ -69,6 +70,9 @@ export async function startTripAction(input: unknown) {
     order: idx + 1,
   }));
 
+  const custRaw = (parsed.data.customerPhone ?? "").trim();
+  const customerPhoneNorm = custRaw ? normalizeCustomerPhone(custRaw) : null;
+
   const { data: inserted, error } = await supabaseAdmin
     .from("trips")
     .insert({
@@ -80,7 +84,7 @@ export async function startTripAction(input: unknown) {
       start_lat: parsed.data.startLat,
       start_lng: parsed.data.startLng,
       recommended_price: recommended.totalRecommended,
-      customer_phone: parsed.data.customerPhone || null,
+      customer_phone: customerPhoneNorm,
     })
     .select("id")
     .single();
@@ -120,7 +124,7 @@ export async function endTripAction(input: unknown) {
   const { data: trip, error: tripErr } = await supabaseAdmin
     .from("trips")
     .select(
-      "id,driver_id,shift_id,start_lat,start_lng,stops,end_lat,end_lng,recommended_price,customer_phone"
+      "id,driver_id,shift_id,start_lat,start_lng,start_location_id,end_location_id,stops,end_lat,end_lng,recommended_price,customer_phone",
     )
     .eq("id", parsed.data.tripId)
     .maybeSingle();
@@ -128,24 +132,17 @@ export async function endTripAction(input: unknown) {
   if (tripErr) throw new Error(tripErr.message);
   if (!trip?.id || trip.driver_id !== driverId) throw new Error("Trip not found.");
 
+  const phoneRaw = (trip.customer_phone ?? "").trim();
+  const customerPhoneNormalized = phoneRaw ? normalizeCustomerPhone(trip.customer_phone!) : null;
+
   const startLat = trip.start_lat != null ? Number(trip.start_lat) : null;
   const startLng = trip.start_lng != null ? Number(trip.start_lng) : null;
   if (startLat == null || startLng == null) throw new Error("Trip is missing start GPS.");
 
-  // Stops are stored as JSON objects with optional lat/lng. We'll use them if present.
-  const points: Array<{ lat: number; lng: number }> = [{ lat: startLat, lng: startLng }];
-  const stops = Array.isArray(trip.stops) ? trip.stops : [];
-  for (const s of stops) {
-    const lat = typeof s?.lat === "number" ? s.lat : s?.lat != null ? Number(s.lat) : null;
-    const lng = typeof s?.lng === "number" ? s.lng : s?.lng != null ? Number(s.lng) : null;
-    if (lat != null && lng != null) points.push({ lat, lng });
-  }
-  points.push({ lat: parsed.data.endLat, lng: parsed.data.endLng });
-
-  let totalKm = 0;
-  for (let i = 0; i < points.length - 1; i++) {
-    totalKm += haversineKm(points[i]!, points[i + 1]!);
-  }
+  const totalKm = await computeEndedTripRouteKm(supabaseAdmin, trip, {
+    lat: parsed.data.endLat,
+    lng: parsed.data.endLng,
+  });
 
   const costPerKm = await estimateCostPerKm(driverId);
   if (parsed.data.discountAmount > 0) {
@@ -170,6 +167,7 @@ export async function endTripAction(input: unknown) {
       actual_price: parsed.data.actualPrice,
       discount_amount: parsed.data.discountAmount,
       discount_reason: parsed.data.discountReason || null,
+      customer_phone: customerPhoneNormalized,
     })
     .eq("id", parsed.data.tripId)
     .eq("driver_id", driverId);
@@ -177,7 +175,7 @@ export async function endTripAction(input: unknown) {
   if (updateErr) throw new Error(updateErr.message);
 
   // Update customer counters (phone-only).
-  const phone = trip.customer_phone?.trim();
+  const phone = customerPhoneNormalized ?? "";
   if (phone) {
     const now = new Date().toISOString();
     await supabaseAdmin
