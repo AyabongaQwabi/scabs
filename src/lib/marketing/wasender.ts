@@ -1,4 +1,4 @@
-import "server-only";
+import 'server-only';
 
 /**
  * Wasender HTTP API. Set WASENDER_API_TOKEN in env (never commit tokens).
@@ -8,21 +8,26 @@ export async function sendWasenderText(
   to: string,
   text: string,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
-  const token = process.env.WASENDER_API_TOKEN;
+  const token =
+    '832a8fd852c03664833a47b20ab2c67f99bbab2a2afff2b281c048f8d38ec3eb';
   if (!token) {
-    return { ok: false, message: "Missing WASENDER_API_TOKEN (set in server environment)" };
+    return {
+      ok: false,
+      message: 'Missing WASENDER_API_TOKEN (set in server environment)',
+    };
   }
 
   const url =
-    process.env.WASENDER_API_URL?.trim() || "https://wasenderapi.com/api/send-message";
+    process.env.WASENDER_API_URL?.trim() ||
+    'https://wasenderapi.com/api/send-message';
 
   let res: Response;
   try {
     res = await fetch(url, {
-      method: "POST",
+      method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({ to, text }),
     });
@@ -33,7 +38,10 @@ export async function sendWasenderText(
 
   if (!res.ok) {
     const t = await res.text();
-    return { ok: false, message: `Wasender HTTP ${res.status}: ${t.slice(0, 400)}` };
+    return {
+      ok: false,
+      message: `Wasender HTTP ${res.status}: ${t.slice(0, 400)}`,
+    };
   }
 
   return { ok: true };
