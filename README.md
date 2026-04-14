@@ -31,6 +31,7 @@ supabase start
 
 - `supabase/migrations/20260408120000_sunshine_cabs_schema.sql` — tables, indexes (matches `docs/prompt.md` / `docs/prd.md`)
 - `supabase/migrations/20260408120001_sunshine_cabs_rls_realtime.sql` — RLS policies for authenticated admins + Realtime for `trips` / `shifts`
+- `supabase/migrations/20260410140000_whatsapp_campaigns.sql` — WhatsApp marketing campaign batches + recipient queue
 
 **Hosted Supabase:** paste and run each migration file **in order** in the SQL Editor (or use [CLI db push](https://supabase.com/docs/guides/cli/local-development#link-your-project)).
 
@@ -57,6 +58,12 @@ Fill in:
 - `NEXT_PUBLIC_SUPABASE_URL`: from Supabase project settings
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: from Supabase project settings
 - `SUPABASE_SERVICE_ROLE_KEY`: **server-only** key from Supabase project settings
+
+**WhatsApp marketing** (`/admin/marketing/whatsapp`, Wasender API):
+
+- `WASENDER_API_TOKEN`: Bearer token from Wasender (server-only; rotate if it was ever exposed)
+- `WASENDER_API_URL` (optional): defaults to `https://wasenderapi.com/api/send-message`
+- `MARKETING_25_MIN_TRIPS` (optional): fallback trip threshold for 25% copy when no `discount_rules` row has `discount_percent = 25` (default `5`)
 
 ### 4) Create an admin user
 

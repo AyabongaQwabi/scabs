@@ -12,6 +12,7 @@ const nav = [
   { href: "/admin/driver-losses", label: "Pre-trip losses" },
   { href: "/admin/locations-pricing", label: "Locations & Pricing" },
   { href: "/admin/customers", label: "Customers" },
+  { href: "/admin/marketing/whatsapp", label: "WhatsApp campaign" },
   { href: "/admin/goals", label: "Goals" },
   { href: "/admin/settings", label: "Settings" },
 ];

@@ -5,8 +5,10 @@ import { createSupabaseAuthMiddlewareClient } from "@/lib/supabase/auth-middlewa
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  // Only protect /admin/* except /admin/login
-  if (!pathname.startsWith("/admin") || pathname.startsWith("/admin/login")) {
+  const isAdminApp = pathname.startsWith("/admin") && !pathname.startsWith("/admin/login");
+  const isAdminApi = pathname.startsWith("/api/admin");
+
+  if (!isAdminApp && !isAdminApi) {
     return NextResponse.next();
   }
 
@@ -28,6 +30,6 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*"],
+  matcher: ["/admin/:path*", "/api/admin/:path*"],
 };
 

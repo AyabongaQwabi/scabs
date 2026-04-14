@@ -1,9 +1,9 @@
 import { Card } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { sumLifetimeKmByCustomerPhone } from "@/lib/customers/aggregate-lifetime-km";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 import { AddCustomerForm } from "./add-customer-form";
+import { CustomersTable, type CustomerTableRow } from "./customers-table";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +22,16 @@ export default async function AdminCustomersPage() {
   const phones = (customers ?? []).map((c) => c.phone);
   const lifetimeKmByPhone = await sumLifetimeKmByCustomerPhone(supabaseAdmin, phones);
 
+  const tableRows: CustomerTableRow[] = (customers ?? []).map((c) => ({
+    phone: c.phone as string,
+    total_trips: c.total_trips as number | null,
+    last_trip_date: (c.last_trip_date as string | null) ?? null,
+    loyalty_tier: (c.loyalty_tier as string | null) ?? null,
+    lifetime_revenue_zar: Number(c.lifetime_revenue_zar ?? 0),
+    lifetime_discounts_zar: Number(c.lifetime_discounts_zar ?? 0),
+    lifetime_km: lifetimeKmByPhone.get(c.phone as string) ?? 0,
+  }));
+
   return (
     <div className="space-y-4">
       <div>
@@ -39,53 +49,7 @@ export default async function AdminCustomersPage() {
         </div>
       </Card>
 
-      <Card className="overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Phone</TableHead>
-              <TableHead className="text-right">Trips</TableHead>
-              <TableHead className="text-right">Revenue (R)</TableHead>
-              <TableHead className="text-right">Discounts (R)</TableHead>
-              <TableHead className="text-right">Distance (km)</TableHead>
-              <TableHead>Last trip</TableHead>
-              <TableHead>Tier</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(customers ?? []).map((c) => (
-              <TableRow key={c.phone}>
-                <TableCell className="font-medium">{c.phone}</TableCell>
-                <TableCell className="text-right">{c.total_trips ?? 0}</TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {Number(c.lifetime_revenue_zar ?? 0).toLocaleString("en-ZA", {
-                    maximumFractionDigits: 0,
-                  })}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {Number(c.lifetime_discounts_zar ?? 0).toLocaleString("en-ZA", {
-                    maximumFractionDigits: 0,
-                  })}
-                </TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {(lifetimeKmByPhone.get(c.phone) ?? 0).toFixed(1)}
-                </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  {c.last_trip_date ? new Date(c.last_trip_date).toLocaleString() : "—"}
-                </TableCell>
-                <TableCell className="text-sm">{c.loyalty_tier ?? "bronze"}</TableCell>
-              </TableRow>
-            ))}
-            {!customers?.length ? (
-              <TableRow>
-                <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
-                  No customers yet.
-                </TableCell>
-              </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
-      </Card>
+      <CustomersTable customers={tableRows} />
     </div>
   );
 }
